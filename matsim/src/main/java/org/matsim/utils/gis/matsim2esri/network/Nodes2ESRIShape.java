@@ -100,10 +100,10 @@ public class Nodes2ESRIShape {
 		String outputFile = null ;
 
 		if ( args.length == 0 ) {
-			netfile = "./examples/equil/network.xml";
+			netfile = "matsim\\src\\munich\\network.xml";
 //		String netfile = "./test/scenarios/berlin/network.xml.gz";
 
-			outputFile = "./plans/networkNodes.shp";
+			outputFile = "matsim\\src\\munich\\networkShp\\networkNodes.shp";
 		} else if ( args.length == 2 ) {
 			netfile = args[0] ;
 			outputFile = args[1] ;

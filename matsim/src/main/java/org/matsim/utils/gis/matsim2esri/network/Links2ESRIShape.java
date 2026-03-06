@@ -85,11 +85,11 @@ public class Links2ESRIShape {
 		String defaultCRS = "DHDN_GK4";
 		boolean commonWealth = false; //to render Commonwealth networks correctly (e.g. drive on left-hand side of the road)
 		if ( args.length == 0 ) {
-			netfile = "./examples/equil/network.xml";
+			netfile = "matsim\\src\\munich\\network.xml";
 //		String netfile = "./test/scenarios/berlin/network.xml.gz";
 
-			outputFileLs = "./plans/networkLs.shp";
-			outputFileP = "./plans/networkP.shp";
+			outputFileLs = "matsim\\src\\munich\\networkShp\\networkLs.shp";
+			outputFileP = "matsim\\src\\munich\\networkShp\\networkP.shp";
 		} else if ( args.length == 3 ) {
 			netfile = args[0] ;
 			outputFileLs = args[1] ;
