@@ -17,3 +17,10 @@ matsim/src/main/java/Doxyfile
 
 # ignore output directories:
 output/
+
+# ignore scenarios\MMUST\VISUM folder
+scenarios/MMUST/VISUM
+
+#ignore scenarios\MMUST network and plans folder
+scenarios/MMUST/network.xml
+scenarios/MMUST/plans.xml
