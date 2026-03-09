@@ -141,7 +141,7 @@
 		<!-- (deprecated: rather express CRS in file) The Coordinates Reference System in which the coordinates are expressed in the input file. At import, the coordinates will be converted to the coordinate system defined in "global", and willbe converted back at export. If not specified, no conversion happens. -->
 		<param name="inputCRS" value="null" />
 		<param name="inputChangeEventsFile" value="null" />
-		<param name="inputNetworkFile" value="scenarios/MMUST/network.xml" />
+		<param name="inputNetworkFile" value="network.xml" />
 		<param name="laneDefinitionsFile" value="null" />
 		<param name="timeVariantNetwork" value="false" />
 	</module>
@@ -157,7 +157,7 @@
 		<!-- The Coordinates Reference System in which the coordinates are expressed in the input file. At import, the coordinates will be converted to the coordinate system defined in "global", and willbe converted back at export. If not specified, no conversion happens. -->
 		<param name="inputCRS" value="null" />
 		<param name="inputPersonAttributesFile" value="null" />
-		<param name="inputPlansFile" value="scenarios/MMUST/plans.xml" />
+		<param name="inputPlansFile" value="plans.xml" />
 		<param name="insistingOnUsingDeprecatedPersonAttributeFile" value="false" />
 		<!-- Defines how routes are stored in memory. Currently supported: LinkNetworkRoute, MediumCompressedNetworkRoute, HeavyCompressedNetworkRoute. -->
 		<param name="networkRouteType" value="LinkNetworkRoute" />
@@ -229,6 +229,11 @@
 		<param name="maxAgentPlanMemorySize" value="5" />
 		<!-- strategyName of PlanSelector for plans removal.  Possible defaults: WorstPlanSelector SelectRandom SelectExpBetaForRemoval ChangeExpBetaForRemoval PathSizeLogitSelectorForRemoval . The current default, WorstPlanSelector is not a good choice from a discrete choice theoretical perspective. Alternatives, however, have not been systematically tested. kai, feb'12 -->
 		<param name="planSelectorForRemoval" value="WorstPlanSelector" />
+		<parameterset type="strategysettings" >
+			<param name="strategyName" value="SelectRandom" />
+			<param name="subpopulation" value="null" />
+			<param name="weight" value="1.0" />
+		</parameterset>
 	</module>
 	<module name="replanningAnnealer" >
 		<!-- Activate the scaling of replanning modules using an annealing approach rather than fixed rates. -->
@@ -397,6 +402,30 @@
 				<param name="priority" value="1.0" />
 				<param name="scoringThisActivityAtAll" value="false" />
 				<param name="typicalDuration" value="undefined" />
+				<param name="typicalDurationScoreComputation" value="relative" />
+			</parameterset>
+			<parameterset type="activityParams" >
+				<param name="activityType" value="home" />
+				<param name="closingTime" value="undefined" />
+				<param name="earliestEndTime" value="undefined" />
+				<param name="latestStartTime" value="undefined" />
+				<param name="minimalDuration" value="undefined" />
+				<param name="openingTime" value="undefined" />
+				<param name="priority" value="1.0" />
+				<param name="scoringThisActivityAtAll" value="true" />
+				<param name="typicalDuration" value="12:00:00" />
+				<param name="typicalDurationScoreComputation" value="relative" />
+			</parameterset>
+			<parameterset type="activityParams" >
+				<param name="activityType" value="work" />
+				<param name="closingTime" value="undefined" />
+				<param name="earliestEndTime" value="undefined" />
+				<param name="latestStartTime" value="undefined" />
+				<param name="minimalDuration" value="undefined" />
+				<param name="openingTime" value="undefined" />
+				<param name="priority" value="1.0" />
+				<param name="scoringThisActivityAtAll" value="true" />
+				<param name="typicalDuration" value="08:00:00" />
 				<param name="typicalDurationScoreComputation" value="relative" />
 			</parameterset>
 			<parameterset type="modeParams" >

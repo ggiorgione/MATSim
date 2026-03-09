@@ -24,3 +24,6 @@ scenarios/MMUST/VISUM
 #ignore scenarios\MMUST network and plans folder
 scenarios/MMUST/network.xml
 scenarios/MMUST/plans.xml
+apache-maven-3.9.6-bin.zip
+output.log
+.github/copilot-instructions.md
