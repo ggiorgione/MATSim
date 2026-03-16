@@ -1,8 +1,6 @@
 name: deploy-weekly
 
 on:
-  schedule:
-    - cron: '30 0 * * 1' # Mon 0:30 UTC
 
 jobs:
   deploy-weekly-build:
