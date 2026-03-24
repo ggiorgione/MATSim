@@ -27,32 +27,27 @@ import org.apache.logging.log4j.LogManager; // import logger to track conversion
 import org.apache.logging.log4j.Logger; // import Logger class for logging messages
 import org.matsim.api.core.v01.Coord; // import Coord to store node coordinates
 import org.matsim.api.core.v01.Id; // import Id for creating unique identifiers
+import org.matsim.api.core.v01.TransportMode; // import TransportMode for car mode constant
 import org.matsim.api.core.v01.network.Link; // import Link to create network links
 import org.matsim.api.core.v01.network.Network; // import Network to create the network
 import org.matsim.api.core.v01.network.Node; // import Node to create network nodes
 import org.matsim.core.config.ConfigUtils; // import ConfigUtils to create config
 import org.matsim.core.network.NetworkUtils; // import NetworkUtils for public API node/link creation
-import org.matsim.core.network.io.NetworkWriter; // import NetworkWriter to save network to XML
-import org.matsim.core.scenario.ScenarioUtils; // import ScenarioUtils to create scenario
+import org.matsim.core.network.algorithms.NetworkCleaner; // import NetworkCleaner to remove disconnected components
+import org.matsim.core.network.algorithms.TransportModeNetworkFilter; // import filter for car-only subnetwork
+import org.matsim.api.core.v01.network.NetworkWriter; // import NetworkWriter API to save network to XML
 import org.matsim.core.utils.io.IOUtils; // import IOUtils for file operations
 import java.io.File; // import File for path handling
 import java.util.ArrayList; // import ArrayList for CSV parsing
 import java.util.List; // import List interface
-import org.matsim.core.config.Config; // import Config
-import org.matsim.api.core.v01.Scenario; // import Scenario
-import org.matsim.pt.transitSchedule.api.TransitSchedule; // import TransitSchedule for PT data
-import org.matsim.pt.transitSchedule.api.TransitLine; // import TransitLine for transit lines
-import org.matsim.pt.transitSchedule.api.TransitRoute; // import TransitRoute for transit routes
-import org.matsim.pt.transitSchedule.api.TransitStopFacility; // import TransitStopFacility for PT stops
-import org.matsim.pt.transitSchedule.api.Departure; // import Departure for PT departures
-import org.matsim.pt.transitSchedule.TransitScheduleFactoryImpl; // import factory for creating transit objects
-import org.matsim.vehicles.Vehicle; // import Vehicle for PT vehicles
-import org.matsim.vehicles.VehicleType; // import VehicleType for vehicle definitions
-import org.matsim.vehicles.Vehicles; // import Vehicles container
+import java.util.Set; // import Set interface for storing modes
+import java.util.HashSet; // import HashSet for creating sets
+import java.util.Map; // import Map for VISUM to MATSim mode mapping
+import java.util.HashMap; // import HashMap for mode mapping static initializer
 
 /**
- * Converts VISUM .ver network file and CSVs to MATSim XML format.
- * Produces: network.xml
+ * Converts VISUM CSV files to MATSim network.xml.
+ * Transit data (schedule, vehicles) is handled separately by Visum2MATSimTransitConverter.
  *
  * @author GitHub Copilot
  */
@@ -60,60 +55,100 @@ public class Visum2MATSimNetworkConverter {
 
 	private static final Logger log = LogManager.getLogger(Visum2MATSimNetworkConverter.class); // logger instance for progress tracking
 
-	private final String visumInputFile; // path to VISUM .ver file
+	private final String visumInputDir; // path to VISUM .csv directory
 	private final String outputDir; // directory to write output XML files
+	private String inputCRS = "EPSG:3857"; // CRS of the input CSV coordinates — change to "EPSG:4326" for WGS84 inputs
+	private boolean carOnly = false; // when true, filter to car-only subnetwork and clean before writing
+
 
 	/**
 	 * Constructor initializes converter with input and output paths.
-	 * @param visumInputFile path to VISUM .ver file to convert
+	 * @param visumInputDir path to VISUM .ver file to convert
 	 * @param outputDir directory where output files will be written
 	 */
-	public Visum2MATSimNetworkConverter(final String visumInputFile, final String outputDir) {
-		this.visumInputFile = visumInputFile; // store input file path for later use
+	public Visum2MATSimNetworkConverter(final String visumInputDir, final String outputDir) {
+		this.visumInputDir = visumInputDir; // store input file path for later use
 		this.outputDir = outputDir; // store output directory path for later use
 	}
 
 	/**
-	 * Executes the full conversion process from VISUM to MATSim format.
+	 * Constructor with explicit input CRS.
+	 * @param visumInputDir path to VISUM CSV directory
+	 * @param outputDir directory where output files will be written
+	 * @param inputCRS CRS of the input CSV coordinates, e.g. "EPSG:4326" or "EPSG:3857"
+	 */
+	public Visum2MATSimNetworkConverter(final String visumInputDir, final String outputDir, final String inputCRS) {
+		this.visumInputDir = visumInputDir; // store input directory
+		this.outputDir = outputDir; // store output directory
+		this.inputCRS = inputCRS; // store input CRS for coordinate handling
+	}
+
+	/**
+	 * Sets whether to produce a car-only network.
+	 * When true: filters to car links, then runs NetworkCleaner so every node is reachable.
+	 * When false (default): keeps all modes, suitable for multimodal runs.
+	 * @param carOnly true for car-only, false for multimodal
+	 */
+	public void setCarOnly(final boolean carOnly) {
+		this.carOnly = carOnly; // store car-only flag for use in convert()
+	}
+
+	/**
+	 * Executes the full conversion: reads Nodes.csv and Links.csv, optionally filters to
+	 * car-only, cleans the network, and writes network.xml.
 	 */
 	public void convert() {
 		log.info("Starting VISUM to MATSim network conversion"); // log conversion start
-		log.info("Input file: " + visumInputFile); // log input file path
+		log.info("Input directory: " + visumInputDir); // log input directory
 		log.info("Output directory: " + outputDir); // log output directory
-		
-		// Create scenario with Config
-		Config config = ConfigUtils.createConfig(); // create MATSim configuration object
-		Scenario scenario = ScenarioUtils.createScenario(config); // create scenario with network
-		Network network = scenario.getNetwork(); // get reference to network object
-		
-		// Extract directory from input file path
-		File inputFile = new File(visumInputFile); // create File object from input path
-		String visumDir = inputFile.getParent(); // get parent directory, handles both Windows and Unix paths
-		
-		// Step 1: Create network from CSV files
-		readNodesFromCSV(network, visumDir + File.separator + "Nodes.csv"); // read nodes from CSV file
-		log.info("Nodes loaded successfully"); // log successful node loading
-		
-		readLinksFromCSV(network, visumDir + File.separator + "Links.csv"); // read links from CSV file
-		log.info("Links loaded successfully"); // log successful link loading
-		
-		// Write network to XML
-		writeNetwork(network); // save network to XML file
-		
-		// Step 2: Create and write transit if data exists
-		File stopsFile = new File(visumDir + File.separator + "Stops.csv"); // check if Stops.csv exists
-		if (stopsFile.exists()) { // check if file exists
-			log.info("Creating transit schedule from VISUM data"); // log transit creation
-			createAndWriteTransit(scenario, visumDir); // create and write transit schedule and vehicles
-		} else { // stops file doesn't exist
-			log.info("No transit data found (Stops.csv not present)"); // log no transit data
+		log.info("Input CRS: " + inputCRS); // log coordinate system being used
+		log.info("Car-only mode: " + carOnly); // log whether car-only filter is active
+
+		File outDir = new File(outputDir); // create File object for output directory
+		if (!outDir.exists()) { // check if directory doesn't exist
+			outDir.mkdirs(); // create directories (including parents) recursively
 		}
-		
-		log.info("Conversion completed successfully"); // log successful completion
+
+		Network network = NetworkUtils.createNetwork(ConfigUtils.createConfig().network()); // create empty network directly (no full Scenario needed)
+
+		readNodesFromCSV(network, visumInputDir + File.separator + "Nodes.csv"); // read nodes from Nodes.csv
+		log.info("Nodes loaded: " + network.getNodes().size()); // log node count
+
+		readLinksFromCSV(network, visumInputDir + File.separator + "Links.csv"); // read links from Links.csv
+		log.info("Links loaded: " + network.getLinks().size()); // log link count
+
+		if (carOnly) { // check if car-only output is requested
+			log.info("Filtering to car-only subnetwork..."); // log filter start
+			TransportModeNetworkFilter filter = new TransportModeNetworkFilter(network); // create mode filter from full multimodal network
+			Network carNetwork = NetworkUtils.createNetwork(ConfigUtils.createConfig().network()); // create empty target network for car links only
+			Set<String> modes = new HashSet<>(); // create set for allowed modes
+			modes.add(TransportMode.car); // add only car mode to the filter set
+			filter.filter(carNetwork, modes); // extract car-only subnetwork into carNetwork
+			network = carNetwork; // replace multimodal network with car-only result
+			log.info("Car-only filter applied: " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links"); // log filtered size
+		}
+
+		new NetworkCleaner().run(network); // remove disconnected components so every remaining node is reachable
+		log.info("Network cleaned: " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links remaining"); // log cleaned size
+
+		writeNetwork(network); // save final network to network.xml
+		log.info("Conversion completed successfully"); // log completion
+	}
+
+	/**
+	 * Converts WGS84 (longitude, latitude in degrees) to EPSG:3857 (Web Mercator, meters).
+	 * Plans use EPSG:3857; VISUM exports use WGS84 degrees — this aligns the coordinate systems.
+	 */
+	private Coord wgs84ToWebMercator(final double lon, final double lat) {
+		double x = lon * 20037508.34 / 180.0; // convert longitude degrees to meters (x axis)
+		double latRad = Math.toRadians(lat); // convert latitude to radians for the Mercator formula
+		double y = Math.log(Math.tan(Math.PI / 4.0 + latRad / 2.0)) * 6378137.0; // Mercator y from latitude
+		return new Coord(x, y); // return projected coordinate in EPSG:3857 meters
 	}
 
 	/**
 	 * Reads nodes from Nodes.csv and adds them to the network.
+	 * Maps VISUM columns: NO -> id, XCOORD -> x, YCOORD -> y, TYPENO -> type
 	 * @param network the network to add nodes to
 	 * @param nodesFile path to the Nodes.csv file
 	 */
@@ -129,6 +164,7 @@ public class Visum2MATSimNetworkConverter {
 			int noIdx = getColumnIndex(headers, "NO"); // find NO column index
 			int xIdx = getColumnIndex(headers, "XCOORD"); // find XCOORD column index
 			int yIdx = getColumnIndex(headers, "YCOORD"); // find YCOORD column index
+			int typeIdx = getColumnIndex(headers, "TYPENO"); // find TYPENO column index
 			
 			// Validate required columns exist
 			if (noIdx == -1 || xIdx == -1 || yIdx == -1) { // check if required columns found
@@ -150,12 +186,22 @@ public class Visum2MATSimNetworkConverter {
 				}
 				
 				try {
-					String nodeNo = parts[noIdx].trim(); // extract node number
-					double x = Double.parseDouble(parts[xIdx].trim()); // parse X coordinate
-					double y = Double.parseDouble(parts[yIdx].trim()); // parse Y coordinate
+				String nodeNo = parts[noIdx].trim(); // extract node number (NO -> id)
+					double x = Double.parseDouble(parts[xIdx].trim()); // parse X coordinate value
+					double y = Double.parseDouble(parts[yIdx].trim()); // parse Y coordinate value
 					
-					Coord coord = new Coord(x, y); // create coordinate object
+					// Convert to EPSG:3857 only when input is WGS84 (EPSG:4326); otherwise use coordinates as-is
+					Coord coord = "EPSG:4326".equals(inputCRS) ? wgs84ToWebMercator(x, y) : new Coord(x, y); // project if needed
 					Node node = NetworkUtils.createNode(Id.create(nodeNo, Node.class), coord); // create node using public API
+					
+					// Set node type attribute (TYPENO -> type)
+					if (typeIdx >= 0 && typeIdx < parts.length) { // check if TYPENO column exists
+						String typeStr = parts[typeIdx].trim(); // extract type value
+						if (!typeStr.isEmpty()) { // check if type is not empty
+							node.getAttributes().putAttribute("type", typeStr); // set type attribute
+						}
+					}
+					
 					network.addNode(node); // add node to network
 					nodeCount++; // increment counter
 				} catch (NumberFormatException e) { // handle parsing errors
@@ -170,6 +216,8 @@ public class Visum2MATSimNetworkConverter {
 
 	/**
 	 * Reads links from Links.csv and adds them to the network.
+	 * Maps VISUM columns: FROMNODENO -> fromNode, TONODENO -> toNode, LENGTH -> length (km*1000->m),
+	 * V0PRT -> freespeed (km/h/3.6->m/s), CAPPRT -> capacity, TSYSSET -> modes
 	 * @param network the network to add links to
 	 * @param linksFile path to the Links.csv file
 	 */
@@ -182,107 +230,114 @@ public class Visum2MATSimNetworkConverter {
 			}
 			
 			String[] headers = parseCSVLine(headerLine); // split header by comma handling quotes
-			int noIdx = getColumnIndex(headers, "NO"); // find NO column index
-			int fromIdx = getColumnIndex(headers, "FROMNODENO"); // find from-node column index
-			int toIdx = getColumnIndex(headers, "TONODENO"); // find to-node column index
+			int fromIdx = getColumnIndex(headers, "FROMNODENO"); // find FROMNODENO column index
+			int toIdx = getColumnIndex(headers, "TONODENO"); // find TONODENO column index
+			int lengthIdx = getColumnIndex(headers, "LENGTH"); // find LENGTH column index
+			int v0Idx = getColumnIndex(headers, "V0PRT"); // find V0PRT (speed) column index
+			int capIdx = getColumnIndex(headers, "CAPPRT"); // find CAPPRT (capacity) column index
+			int tsysIdx = getColumnIndex(headers, "TSYSSET"); // find TSYSSET (modes) column index
+			int numLanesIdx = getColumnIndex(headers, "NUMLANES"); // find NUMLANES column index
+			int linkNoIdx = getColumnIndex(headers, "fid"); // find fid (link ID) column index — fid is unique per row, NO is shared between both directions
 			
 			// Validate required columns exist
-			if (noIdx == -1 || fromIdx == -1 || toIdx == -1) { // check if required columns found
-				log.error("Required columns missing in Links.csv. Found NO: " + (noIdx >= 0) + ", FROMNODENO: " + (fromIdx >= 0) + ", TONODENO: " + (toIdx >= 0)); // log error
+			if (fromIdx == -1 || toIdx == -1 || lengthIdx == -1) { // check if required routing columns found
+				log.error("Required columns missing in Links.csv. Found FROMNODENO: " + (fromIdx >= 0) + ", TONODENO: " + (toIdx >= 0) + ", LENGTH: " + (lengthIdx >= 0)); // log error
 				return; // exit method
 			}
 			
-			int lengthIdx = getColumnIndex(headers, "LENGTH"); // find LENGTH column index
-			int lanesIdx = getColumnIndex(headers, "NUMLANES"); // find NUMLANES column index
-			int capIdx = getColumnIndex(headers, "CAP"); // find capacity column index
-			int speedIdx = getColumnIndex(headers, "V0"); // find speed column index
-			
 			String line; // variable for reading lines
 			int linkCount = 0; // counter for created links
-			int missingNodeCount = 0; // counter for links with missing nodes
 			int lineNum = 1; // line counter for error reporting
 			while ((line = reader.readLine()) != null) { // loop through all data rows
 				lineNum++; // increment line counter
 				if (line.trim().isEmpty()) continue; // skip empty lines
 				
 				String[] parts = parseCSVLine(line); // parse CSV line handling quotes
-				if (parts.length <= Math.max(toIdx, Math.max(lengthIdx, speedIdx))) { // check if row has enough columns
+				int maxIdx = Math.max(Math.max(fromIdx, toIdx), lengthIdx); // find maximum required column index
+				if (parts.length <= maxIdx) { // check if row has enough columns
 					log.warn("Line " + lineNum + " has insufficient columns"); // log warning
 					continue; // skip incomplete rows
 				}
 				
 				try {
-					String linkNo = parts[noIdx].trim(); // extract link number
-					String fromNodeNo = parts[fromIdx].trim(); // extract from-node ID
-					String toNodeNo = parts[toIdx].trim(); // extract to-node ID
+					String fromNodeNo = parts[fromIdx].trim(); // extract from-node number
+					String toNodeNo = parts[toIdx].trim(); // extract to-node number
+					String lengthStr = parts[lengthIdx].trim(); // get length string (may include unit like "km")
+					lengthStr = lengthStr.replaceAll("[^0-9.]", ""); // strip all non-numeric characters (units like "km")
+					double lengthKm = Double.parseDouble(lengthStr); // parse length value in km
+					double lengthM = lengthKm * 1000.0; // convert length from km to m
 					
-					Node fromNode = network.getNodes().get(Id.create(fromNodeNo, Node.class)); // get from-node
-					Node toNode = network.getNodes().get(Id.create(toNodeNo, Node.class)); // get to-node
-					
-					if (fromNode == null || toNode == null) { // check if nodes exist
-						missingNodeCount++; // increment missing node counter
-						continue; // skip this link
+					// Parse optional speed (V0PRT in km/h, convert to m/s)
+					double freespeedMs = 13.89; // default speed (50 km/h = 13.89 m/s)
+					if (v0Idx >= 0 && v0Idx < parts.length && !parts[v0Idx].trim().isEmpty()) { // check if V0PRT column exists and has value
+						String speedStr = parts[v0Idx].trim(); // get speed string (may include unit)
+						speedStr = speedStr.replaceAll("[^0-9.]", ""); // strip all non-numeric characters
+						double v0KmH = Double.parseDouble(speedStr); // parse speed in km/h (V0PRT -> freespeed)
+						freespeedMs = v0KmH / 3.6; // convert from km/h to m/s
 					}
 					
-					// Set default values
-					double length = 1000.0; // default length in meters
-					double freespeed = 13.89; // default speed in m/s (50 km/h)
-					double capacity = 1000.0; // default capacity
+					// Parse optional capacity (vehicles per hour, convert to vehicles per 3600 seconds)
+					double capacity = 2000.0; // default capacity
+					if (capIdx >= 0 && capIdx < parts.length && !parts[capIdx].trim().isEmpty()) { // check if CAPPRT column exists and has value
+						String capStr = parts[capIdx].trim(); // get capacity string (may include unit)
+						capStr = capStr.replaceAll("[^0-9.]", ""); // strip all non-numeric characters
+						capacity = Double.parseDouble(capStr); // extract capacity in vehicles per hour (CAPPRT -> capacity)
+					}
+					
+					// Parse optional number of lanes
 					double numLanes = 1.0; // default number of lanes
-					
-					if (lengthIdx >= 0 && lengthIdx < parts.length) { // check if length column exists
-						try {
-							length = Double.parseDouble(parts[lengthIdx].trim()); // parse and override length
-						} catch (NumberFormatException e) {
-							log.debug("Could not parse length for link " + linkNo); // log at debug level
-						}
-					}
-					if (speedIdx >= 0 && speedIdx < parts.length) { // check if speed column exists
-						try {
-							freespeed = Double.parseDouble(parts[speedIdx].trim()); // parse and override speed
-						} catch (NumberFormatException e) {
-							log.debug("Could not parse speed for link " + linkNo); // log at debug level
-						}
-					}
-					if (capIdx >= 0 && capIdx < parts.length) { // check if capacity column exists
-						try {
-							capacity = Double.parseDouble(parts[capIdx].trim()); // parse and override capacity
-						} catch (NumberFormatException e) {
-							log.debug("Could not parse capacity for link " + linkNo); // log at debug level
-						}
-					}
-					if (lanesIdx >= 0 && lanesIdx < parts.length) { // check if lanes column exists
-						try {
-							numLanes = Double.parseDouble(parts[lanesIdx].trim()); // parse and override lanes
-						} catch (NumberFormatException e) {
-							log.debug("Could not parse lanes for link " + linkNo); // log at debug level
-						}
+					if (numLanesIdx >= 0 && numLanesIdx < parts.length && !parts[numLanesIdx].trim().isEmpty()) { // check if NUMLANES column exists and has value
+						String lanesStr = parts[numLanesIdx].trim(); // get lanes string (may include unit)
+						lanesStr = lanesStr.replaceAll("[^0-9.]", ""); // strip all non-numeric characters
+						numLanes = Double.parseDouble(lanesStr); // extract number of lanes
 					}
 					
-					// Create link with all required parameters
-					Link link = NetworkUtils.createLink(Id.create(linkNo, Link.class), fromNode, toNode, network, length, freespeed, capacity, numLanes); // create link
+					// Get from and to nodes from network
+					Node fromNode = network.getNodes().get(Id.createNodeId(fromNodeNo)); // retrieve from-node by id
+					Node toNode = network.getNodes().get(Id.createNodeId(toNodeNo)); // retrieve to-node by id
+					
+					if (fromNode == null || toNode == null) { // check if both nodes exist
+						log.warn("Line " + lineNum + ": Node not found - from: " + fromNodeNo + ", to: " + toNodeNo); // log warning about missing nodes
+						continue; // skip link if nodes missing
+					}
+					
+					// Create link ID using fid if available (fid is unique per row), otherwise use from-to format
+					String linkId; // variable for link id
+					if (linkNoIdx >= 0 && linkNoIdx < parts.length && !parts[linkNoIdx].trim().isEmpty()) { // check if fid column exists
+						linkId = parts[linkNoIdx].trim(); // use fid as link id (unique per direction)
+					} else { // if fid not available
+						linkId = fromNodeNo + "_" + toNodeNo; // create id from node numbers
+					}
+					
+					// Create link using public API
+					Link link = NetworkUtils.createLink(Id.createLinkId(linkId), fromNode, toNode, network, lengthM, freespeedMs, capacity, numLanes); // create link with transformed values
+					
+					// Parse TSYSSET and map to MATSim modes
+					if (tsysIdx >= 0 && tsysIdx < parts.length && !parts[tsysIdx].trim().isEmpty()) { // check if TSYSSET column exists
+						String visumModes = parts[tsysIdx].trim(); // extract TSYSSET string
+						String matsimModes = mapVisumModesToMATSimModes(visumModes); // convert VISUM modes to MATSim modes
+						if (!matsimModes.isEmpty()) { // check if any modes were mapped
+							link.setAllowedModes(java.util.Arrays.stream(matsimModes.split(",")).collect(java.util.stream.Collectors.toSet())); // set modes on link
+						}
+					}
+					
 					network.addLink(link); // add link to network
 					linkCount++; // increment counter
+
 				} catch (NumberFormatException e) { // handle parsing errors
-					log.warn("Line " + lineNum + ": Error parsing link attributes: " + e.getMessage()); // log warning with line number
+					log.warn("Line " + lineNum + ": Error parsing link data: " + e.getMessage()); // log warning with line number
 				}
 			}
 			log.info("Created " + linkCount + " links from Links.csv"); // log number of links created
-			if (missingNodeCount > 0) { // check if any nodes were missing
-				log.warn("Skipped " + missingNodeCount + " links due to missing nodes"); // log warning about missing nodes
-			}
 		} catch (IOException e) { // handle file reading errors
 			log.error("Error reading Links.csv: " + e.getMessage(), e); // log error with exception
 		}
 	}
 
 	/**
-	 * Finds the index of a column by name in the header array.
-	 * @param headers the header row split into columns
-	 * @param columnName the name of the column to find
-	 * @return the index of the column, or -1 if not found
+	 * Finds the index of a column by name (case-insensitive) in the header array.
 	 */
-	private int getColumnIndex(final String[] headers, final String columnName) {
+	static int getColumnIndex(final String[] headers, final String columnName) {
 		for (int i = 0; i < headers.length; i++) { // iterate through all header columns
 			if (headers[i].trim().equalsIgnoreCase(columnName)) { // check for case-insensitive match
 				return i; // return the index when found
@@ -292,11 +347,9 @@ public class Visum2MATSimNetworkConverter {
 	}
 
 	/**
-	 * Parses a CSV line handling quoted fields properly.
-	 * @param line the CSV line to parse
-	 * @return array of fields in the line
+	 * Parses a CSV line handling quoted fields and escaped quotes.
 	 */
-	private String[] parseCSVLine(final String line) {
+	static String[] parseCSVLine(final String line) {
 		List<String> fields = new ArrayList<>(); // create list to store fields
 		StringBuilder current = new StringBuilder(); // build current field
 		boolean inQuotes = false; // track if inside quoted field
@@ -324,330 +377,92 @@ public class Visum2MATSimNetworkConverter {
 	}
 
 	/**
-	 * Writes MATSim network to XML file.
-	 * @param network the network to write
+	 * Maps VISUM TSYSSET modes to MATSim standard modes.
+	 * Uses the mapping table: B->pt, Bike->bike, Covoit*->ride, M->walk, PL*->truck, R->pt, TC_inactif->pt, TRAM->pt, V*->car, VS*->car
+	 * @param visumModes comma-separated VISUM mode codes (TSYSSET)
+	 * @return comma-separated MATSim mode codes (unique, sorted)
+	 */
+	private String mapVisumModesToMATSimModes(final String visumModes) {
+		// Create static mapping table from VISUM codes to MATSim modes
+		Map<String, String> modeMap = new HashMap<>(); // create mapping table
+		modeMap.put("B", "pt"); // B -> public transport
+		modeMap.put("Bike", "bike"); // Bike -> bike mode
+		modeMap.put("Covoit", "ride"); // Covoit variants map to ride/carpool
+		modeMap.put("Covoit_echange", "ride"); // carpool exchange
+		modeMap.put("Covoit_front", "ride"); // carpool frontier
+		modeMap.put("Covoit_non_tribut", "ride"); // carpool non-tributary
+		modeMap.put("Covoit_transit", "ride"); // carpool transit
+		modeMap.put("Covoit_tribut", "ride"); // carpool tributary
+		modeMap.put("M", "walk"); // M -> walking
+		modeMap.put("PL", "truck"); // PL variants map to truck
+		modeMap.put("PL_nonTribut", "truck"); // truck non-tributary
+		modeMap.put("PL_tribut", "truck"); // truck tributary
+		modeMap.put("R", "pt"); // R -> public transport
+		modeMap.put("TC_inactif", "pt"); // inactive PT
+		modeMap.put("TRAM", "pt"); // tram is PT
+		modeMap.put("V", "car"); // V variants map to car
+		modeMap.put("VS_ech", "car"); // car exchange
+		modeMap.put("VS_front", "car"); // car frontier
+		modeMap.put("VS_non_tribut", "car"); // car non-tributary
+		modeMap.put("VS_transit", "car"); // car transit
+		modeMap.put("VS_Tribut", "car"); // car tributary
+		modeMap.put("V_echange", "car"); // car exchange
+		modeMap.put("V_front_BE_FR", "car"); // car Belgium-France frontier
+		modeMap.put("V_front_BE_LU", "car"); // car Belgium-Luxembourg frontier
+		modeMap.put("V_front_fr_1", "car"); // car France frontier 1
+		modeMap.put("V_front_fr_2", "car"); // car France frontier 2
+		modeMap.put("V_front_fr_3", "car"); // car France frontier 3
+		modeMap.put("V_interne_LU", "car"); // car internal Luxembourg
+		modeMap.put("V_non_frontalier", "car"); // car non-frontier
+		modeMap.put("V_transit", "car"); // car transit
+		
+		Set<String> matsimModes = new HashSet<>(); // create set for mapped modes (auto removes duplicates)
+		String[] visumModeArray = visumModes.split(","); // split TSYSSET by comma
+		for (String visumMode : visumModeArray) { // iterate through each VISUM mode
+			String trimmed = visumMode.trim(); // remove whitespace
+			String matsimMode = modeMap.get(trimmed); // lookup MATSim mode
+			if (matsimMode != null) { // check if mapping exists
+				matsimModes.add(matsimMode); // add MATSim mode to set (auto removes duplicates)
+			}
+		}
+		
+		// Return comma-separated modes sorted for consistency
+		return matsimModes.stream() // convert set to stream
+			.sorted() // sort alphabetically for consistency
+			.reduce((a, b) -> a + "," + b) // join with commas
+			.orElse(""); // return empty string if no modes mapped
+	}
+
+	/**
+	 * Writes the network to network.xml in the output directory.
 	 */
 	private void writeNetwork(final Network network) {
 		String outputFile = outputDir + File.separator + "network.xml"; // construct output file path
 		log.info("Writing network to: " + outputFile); // log output location
-		new NetworkWriter(network).write(outputFile); // use MATSim writer to save network
-		log.info("Network written successfully"); // log successful write
+		new NetworkWriter(network).write(outputFile); // write network (v2 format includes node attributes inline)
+		log.info("Wrote " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links"); // log written size
 	}
 
 	/**
-	 * Creates and writes transit schedule and vehicles from VISUM CSV files.
-	 * @param scenario the MATSim scenario
-	 * @param visumDir the VISUM directory containing CSV files
-	 */
-	private void createAndWriteTransit(final Scenario scenario, final String visumDir) {
-		try {
-			Network network = scenario.getNetwork(); // get network for stop facility location mapping
-			TransitSchedule schedule = scenario.getTransitSchedule(); // get transit schedule from scenario
-			Vehicles vehicles = scenario.getTransitVehicles(); // get vehicles container
-			
-			// Read stops and create transit stop facilities
-			readStopsFromCSV(schedule, network, visumDir + File.separator + "Stops.csv"); // read stops
-			log.info("Transit stops created successfully"); // log successful stop creation
-			
-			// Read line routes and create transit lines
-			readLineRoutesFromCSV(schedule, vehicles, visumDir + File.separator + "LineRoutes.csv", visumDir + File.separator + "StopPoint.csv"); // read routes
-			log.info("Transit lines created successfully"); // log successful line creation
-			
-			// Write transit files
-			writeTransitSchedule(schedule); // write schedule XML
-			writeVehicles(vehicles); // write vehicles XML
-		} catch (IOException e) { // handle file reading errors
-			log.error("Error creating transit data: " + e.getMessage(), e); // log error with exception
-		}
-	}
-
-	/**
-	 * Reads transit stops from Stops.csv and creates TransitStopFacility objects.
-	 * @param schedule the transit schedule to populate
-	 * @param network the network for coordinate mapping
-	 * @param stopsFile path to Stops.csv
-	 */
-	private void readStopsFromCSV(final TransitSchedule schedule, final Network network, final String stopsFile) throws IOException {
-		try (BufferedReader reader = IOUtils.getBufferedReader(new File(stopsFile).toURI().toURL(), StandardCharsets.ISO_8859_1)) { // open CSV file
-			String headerLine = reader.readLine(); // read header row
-			if (headerLine == null) return; // exit if file empty
-			
-			String[] headers = parseCSVLine(headerLine); // parse header
-			int noIdx = getColumnIndex(headers, "NO"); // get stop number index
-			int nameIdx = getColumnIndex(headers, "NAME"); // get stop name index
-			int codeIdx = getColumnIndex(headers, "CODE"); // get stop code index
-			
-			if (noIdx == -1 || nameIdx == -1) return; // exit if required columns missing
-			
-			String line; // variable for reading lines
-			int stopCount = 0; // counter for created stops
-			while ((line = reader.readLine()) != null) { // loop through all rows
-				if (line.trim().isEmpty()) continue; // skip empty lines
-				
-				String[] parts = parseCSVLine(line); // parse CSV line
-				if (parts.length <= Math.max(noIdx, nameIdx)) continue; // skip incomplete rows
-				
-				try {
-					String stopNo = parts[noIdx].trim(); // extract stop number
-					String stopName = (nameIdx >= 0 && nameIdx < parts.length) ? parts[nameIdx].trim() : stopNo; // get stop name
-					String stopCode = (codeIdx >= 0 && codeIdx < parts.length) ? parts[codeIdx].trim() : stopNo; // get stop code
-					
-					// Try to find a network node with matching ID to get coordinates
-					Coord coord = new Coord(0, 0); // default coordinate
-					Node node = network.getNodes().get(Id.create(stopNo, Node.class)); // try to find node by stop number
-					if (node != null) { // if node found
-						coord = node.getCoord(); // use node coordinates
-					}
-					
-					// Create transit stop facility using schedule factory
-					TransitStopFacility stop = schedule.getFactory().createTransitStopFacility(Id.create(stopNo, TransitStopFacility.class), coord, false); // create stop
-					stop.setName(stopName); // set stop name
-					schedule.addStopFacility(stop); // add to schedule
-					stopCount++; // increment counter
-				} catch (Exception e) { // handle any errors
-					log.debug("Error processing stop: " + e.getMessage()); // log at debug level
-				}
-			}
-			log.info("Created " + stopCount + " transit stops from Stops.csv"); // log number of stops created
-		} catch (IOException e) { // handle file errors
-			log.error("Error reading Stops.csv: " + e.getMessage(), e); // log error
-			throw e; // re-throw exception
-		}
-	}
-
-	/**
-	 * Reads transit line routes and creates TransitLine and TransitRoute objects.
-	 * @param schedule the transit schedule to populate
-	 * @param vehicles the vehicles container for creating vehicle types
-	 * @param lineRoutesFile path to LineRoutes.csv
-	 * @param stopPointFile path to StopPoint.csv
-	 */
-	private void readLineRoutesFromCSV(final TransitSchedule schedule, final Vehicles vehicles, final String lineRoutesFile, final String stopPointFile) throws IOException {
-		try {
-			// First, read stop sequences from StopPoint.csv into a map
-			java.util.Map<String, java.util.List<String>> routeStopSequences = readStopPointsFromCSV(stopPointFile); // read stop sequences
-			
-			// Read line routes and create transit lines
-			try (BufferedReader reader = IOUtils.getBufferedReader(new File(lineRoutesFile).toURI().toURL(), StandardCharsets.ISO_8859_1)) { // open CSV file
-				String headerLine = reader.readLine(); // read header
-				if (headerLine == null) return; // exit if empty
-				
-				String[] headers = parseCSVLine(headerLine); // parse header
-				int lineNameIdx = getColumnIndex(headers, "LINENAME"); // get line name index
-				int routeNameIdx = getColumnIndex(headers, "NAME"); // get route name index
-				int tsysIdx = getColumnIndex(headers, "TSYSCODE"); // get transit system code index
-				
-				if (lineNameIdx == -1 || routeNameIdx == -1) return; // exit if required columns missing
-				
-				String line; // variable for reading lines
-				int lineCount = 0; // counter for created lines
-				java.util.Set<String> createdLines = new java.util.HashSet<>(); // track created line IDs
-				
-				while ((line = reader.readLine()) != null) { // loop through all rows
-					if (line.trim().isEmpty()) continue; // skip empty lines
-					
-					String[] parts = parseCSVLine(line); // parse CSV line
-					if (parts.length <= Math.max(lineNameIdx, routeNameIdx)) continue; // skip incomplete rows
-					
-					try {
-						String lineName = parts[lineNameIdx].trim(); // get line name
-						String routeName = parts[routeNameIdx].trim(); // get route name
-						String lineId = lineName + "_" + routeName; // create unique line ID
-						
-						// Create or get transit line
-						TransitLine transitLine = schedule.getTransitLines().get(Id.create(lineId, TransitLine.class)); // try to get existing line
-						if (transitLine == null) { // if line doesn't exist
-							transitLine = schedule.getFactory().createTransitLine(Id.create(lineId, TransitLine.class)); // create new line
-							transitLine.setName(lineName); // set line name
-							schedule.addTransitLine(transitLine); // add to schedule
-							createdLines.add(lineId); // track as created
-							
-							// Create default vehicle type if not exists
-							createDefaultVehicleType(vehicles, "bus"); // create bus vehicle type if needed
-							
-							// Create a vehicle for this line
-							createVehicleForLine(vehicles, lineId); // create vehicle instance
-						}
-						
-						// Try to find stop sequence for this route
-						java.util.List<String> stopSequence = routeStopSequences.get(routeName); // get stops for route
-						if (stopSequence != null && !stopSequence.isEmpty()) { // if stops found
-							createTransitRoute(transitLine, schedule, routeName, stopSequence); // create route
-						}
-						
-						lineCount++; // increment counter
-					} catch (Exception e) { // handle errors
-						log.debug("Error processing line route: " + e.getMessage()); // log at debug
-					}
-				}
-				log.info("Created " + lineCount + " transit routes for " + createdLines.size() + " transit lines"); // log results
-			}
-		} catch (IOException e) { // handle file errors
-			log.error("Error reading transit files: " + e.getMessage(), e); // log error
-			throw e; // re-throw
-		}
-	}
-
-	/**
-	 * Reads StopPoint.csv to determine stop sequences for each route.
-	 * @param stopPointFile path to StopPoint.csv
-	 * @return map of route names to ordered lists of stop numbers
-	 */
-	private java.util.Map<String, java.util.List<String>> readStopPointsFromCSV(final String stopPointFile) throws IOException {
-		java.util.Map<String, java.util.List<String>> routeStops = new java.util.HashMap<>(); // map from route to stops
-		
-		try (BufferedReader reader = IOUtils.getBufferedReader(new File(stopPointFile).toURI().toURL(), StandardCharsets.ISO_8859_1)) { // open CSV
-			String headerLine = reader.readLine(); // read header
-			if (headerLine == null) return routeStops; // return empty map if file empty
-			
-			String[] headers = parseCSVLine(headerLine); // parse header
-			int stopAreaIdx = getColumnIndex(headers, "STOPAREANO"); // get stop area index
-			
-			if (stopAreaIdx == -1) return routeStops; // exit if required column missing
-			
-			String line; // variable for reading lines
-			while ((line = reader.readLine()) != null) { // loop through all rows
-				if (line.trim().isEmpty()) continue; // skip empty lines
-				
-				String[] parts = parseCSVLine(line); // parse CSV line
-				if (parts.length <= stopAreaIdx) continue; // skip incomplete rows
-				
-				try {
-					String stopAreaNo = parts[stopAreaIdx].trim(); // get stop area number as basic grouping for now
-					// Note: In a real scenario, you'd parse the route sequence from the route-stop mapping
-					// For simplicity, we group by stop area number
-					// In production, you'd need a separate route-stop sequence field or different mapping logic
-				} catch (Exception e) { // handle errors
-					log.debug("Error processing stop point: " + e.getMessage()); // log at debug level
-				}
-			}
-		} catch (IOException e) { // handle file errors
-			log.error("Error reading StopPoint.csv: " + e.getMessage(), e); // log error
-		}
-		
-		return routeStops; // return the map
-	}
-
-	/**
-	 * Creates a default vehicle type if it doesn't exist.
-	 * @param vehicles the vehicles container
-	 * @param type the vehicle type name (e.g., "bus")
-	 */
-	private void createDefaultVehicleType(final Vehicles vehicles, final String type) {
-		Id<VehicleType> typeId = Id.create(type, VehicleType.class); // create type ID
-		if (vehicles.getVehicleTypes().get(typeId) == null) { // check if type already exists
-			VehicleType vType = vehicles.getFactory().createVehicleType(typeId); // create vehicle type
-			vType.setDescription("Default " + type + " vehicle"); // set description
-			vType.getCapacity().setSeats(Integer.valueOf(50)); // set default bus capacity
-			vType.getCapacity().setStandingRoom(Integer.valueOf(20)); // set standing room
-			vType.setPcuEquivalents(2.0); // set PCU value for traffic modeling
-			vehicles.addVehicleType(vType); // add to vehicles
-		}
-	}
-
-	/**
-	 * Creates a vehicle instance for a transit line.
-	 * @param vehicles the vehicles container
-	 * @param lineId the transit line ID
-	 */
-	private void createVehicleForLine(final Vehicles vehicles, final String lineId) {
-		Id<VehicleType> typeId = Id.create("bus", VehicleType.class); // reference bus type
-		Id<Vehicle> vehicleId = Id.create(lineId + "_veh1", Vehicle.class); // create vehicle ID
-		if (vehicles.getVehicles().get(vehicleId) == null) { // check if vehicle doesn't exist
-			Vehicle vehicle = vehicles.getFactory().createVehicle(vehicleId, vehicles.getVehicleTypes().get(typeId)); // create vehicle
-			vehicles.addVehicle(vehicle); // add to vehicles
-		}
-	}
-
-	/**
-	 * Creates a TransitRoute with departures for a transit line.
-	 * @param line the transit line
-	 * @param schedule the transit schedule
-	 * @param routeName the route name
-	 * @param stopSequence the ordered list of stop facility IDs
-	 */
-	private void createTransitRoute(final TransitLine line, final TransitSchedule schedule, final String routeName, final java.util.List<String> stopSequence) {
-		try {
-			// Create list of TransitRouteStops with arrival and departure times
-			java.util.List<org.matsim.pt.transitSchedule.api.TransitRouteStop> stops = new java.util.ArrayList<>(); // list of stops in route
-			
-			for (int i = 0; i < stopSequence.size(); i++) { // loop through stop sequence
-				String stopId = stopSequence.get(i); // get stop ID
-				TransitStopFacility stop = schedule.getFacilities().get(Id.create(stopId, TransitStopFacility.class)); // get stop facility
-				if (stop != null) { // if stop exists
-					// Create stop with offset times (30 minutes apart for demo)
-					int offsetSeconds = i * 30 * 60; // 30 minutes per stop
-					org.matsim.pt.transitSchedule.api.TransitRouteStop routeStop = schedule.getFactory().createTransitRouteStop(stop, offsetSeconds, offsetSeconds + 60); // create route stop
-					stops.add(routeStop); // add to list
-				}
-			}
-			
-			if (!stops.isEmpty()) { // only create route if has stops
-				// Create dummy link sequence (simplified - connects first and last stop)
-				java.util.List<Id<Link>> linkIds = new java.util.ArrayList<>(); // empty link sequence for now
-				TransitRoute route = schedule.getFactory().createTransitRoute(Id.create(routeName, TransitRoute.class), null, stops, "pt"); // create route
-				
-				// Add some departures (every 15 minutes from 6 AM to 10 PM)
-				for (int hour = 6; hour < 22; hour++) { // loop through hours 6-22
-					for (int quarter = 0; quarter < 4; quarter++) { // 4 quarters per hour
-						int departureTime = hour * 3600 + quarter * 15 * 60; // calculate departure time
-						Departure departure = schedule.getFactory().createDeparture(Id.create("dep_" + departureTime, Departure.class), departureTime); // create departure
-						departure.setVehicleId(Id.create(line.getId().toString() + "_veh1", Vehicle.class)); // assign vehicle
-						route.addDeparture(departure); // add departure to route
-					}
-				}
-				
-				line.addRoute(route); // add route to line
-			}
-		} catch (Exception e) { // handle errors
-			log.debug("Error creating transit route: " + e.getMessage()); // log at debug level
-		}
-	}
-
-	/**
-	 * Writes transit schedule to XML file.
-	 * @param schedule the schedule to write
-	 */
-	private void writeTransitSchedule(final TransitSchedule schedule) {
-		String outputFile = outputDir + File.separator + "transitSchedule.xml"; // construct output file path
-		log.info("Writing transit schedule to: " + outputFile); // log output location
-		new org.matsim.pt.transitSchedule.TransitScheduleFactoryImpl(); // reference factory
-		new org.matsim.pt.transitSchedule.TransitScheduleWriterV1(schedule).write(outputFile); // write schedule
-		log.info("Transit schedule written successfully"); // log success
-	}
-
-	/**
-	 * Writes vehicles to XML file.
-	 * @param vehicles the vehicles container to write
-	 */
-	private void writeVehicles(final Vehicles vehicles) {
-		if (vehicles.getVehicles().isEmpty()) { // check if vehicles exist
-			log.warn("No vehicles found in transit data"); // warn if no vehicles
-			return; // skip writing
-		}
-		
-		String outputFile = outputDir + File.separator + "transitVehicles.xml"; // construct output file path
-		log.info("Writing vehicles to: " + outputFile); // log output location
-		new org.matsim.vehicles.VehicleWriterV1(vehicles).writeFile(outputFile); // write vehicles
-		log.info("Vehicles written successfully"); // log success
-	}
-
-	/**
-	 * Main method for command-line usage.
-	 * Usage: java Visum2MATSimNetworkConverter <input.ver> <output-directory>
-	 *
-	 * @param args command-line arguments: [0] VISUM input file, [1] output directory
+	 * Main entry point.
+	 * Usage: java Visum2MATSimNetworkConverter &lt;input-dir&gt; &lt;output-dir&gt; [input-crs] [car-only]
+	 *   input-crs : EPSG:3857 (default) or EPSG:4326 for WGS84 inputs
+	 *   car-only  : true/yes — filter to car-only network and run NetworkCleaner (default: false/multimodal)
 	 */
 	public static void main(final String[] args) {
-		if (args.length < 2) { // check if required arguments provided
-			System.err.println("Usage: java Visum2MATSimNetworkConverter <input.ver> <output-directory>"); // print usage message
+		if (args.length < 2) { // check if required arguments are present
+			System.err.println("Usage: java Visum2MATSimNetworkConverter <input-dir> <output-dir> [input-crs] [car-only]"); // print usage
 			System.exit(1); // exit with error code
 		}
-		
-		String inputFile = args[0]; // extract input file path from arguments
-		String outputDir = args[1]; // extract output directory from arguments
-		
-		Visum2MATSimNetworkConverter converter = new Visum2MATSimNetworkConverter(inputFile, outputDir); // create converter instance
+
+		String inputDir = args[0]; // extract input directory
+		String outputDir = args[1]; // extract output directory
+		String inputCRS = args.length >= 3 ? args[2] : "EPSG:3857"; // use 3rd arg as CRS or default to EPSG:3857
+		boolean carOnly = args.length >= 4 && (args[3].equalsIgnoreCase("true") || args[3].equalsIgnoreCase("yes")); // parse car-only flag from optional 4th arg
+
+		Visum2MATSimNetworkConverter converter = new Visum2MATSimNetworkConverter(inputDir, outputDir, inputCRS); // create converter with CRS
+		converter.setCarOnly(carOnly); // apply car-only setting
 		converter.convert(); // execute conversion
 	}
 }
+
