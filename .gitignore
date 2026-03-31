@@ -24,6 +24,7 @@ scenarios/MMUST/VISUM
 #ignore scenarios\MMUST network and plans folder
 scenarios/MMUST/network*
 scenarios/MMUST/plans*
+scenarios/MMUST/population*
 scenarios/MMUST/full_config.xml
 scenarios/MMUST/output/
 apache-maven-3.9.6-bin.zip
