@@ -33,3 +33,9 @@ output.log
 
 # Ignore all jar files
 *.jar
+scenarios/MMUST/pt2matsim-tools/network.xml
+.gitignore
+scenarios/MMUST/transitSchedule.xml
+scenarios/MMUST/transitVehicles.xml
+scenarios/MMUST/pt2matsim-tools/ptmapping_config.xml
+scenarios/MMUST/pt2matsim-tools/transitSchedule_unmapped.xml

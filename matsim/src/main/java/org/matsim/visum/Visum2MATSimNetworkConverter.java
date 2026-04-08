@@ -378,43 +378,47 @@ public class Visum2MATSimNetworkConverter {
 
 	/**
 	 * Maps VISUM TSYSSET modes to MATSim standard modes.
-	 * Uses the mapping table: B->pt, Bike->bike, Covoit*->ride, M->walk, PL*->truck, R->pt, TC_inactif->pt, TRAM->pt, V*->car, VS*->car
+	 * Mapping for MMUST Luxembourg dataset:
+	 *   B           -> bus   (bus transport system)
+	 *   Bike        -> bike
+	 *   R           -> rail  (rail infrastructure)
+	 *   M*          -> walk  (pedestrian paths)
+	 *   Covoit*     -> ride  (carpool)
+	 *   PL*         -> truck (poids lourds = heavy goods vehicles)
+	 *   V*          -> car   (voiture = car, all sub-variants)
 	 * @param visumModes comma-separated VISUM mode codes (TSYSSET)
 	 * @return comma-separated MATSim mode codes (unique, sorted)
 	 */
 	private String mapVisumModesToMATSimModes(final String visumModes) {
 		// Create static mapping table from VISUM codes to MATSim modes
 		Map<String, String> modeMap = new HashMap<>(); // create mapping table
-		modeMap.put("B", "pt"); // B -> public transport
+		modeMap.put("B", "bus"); // B -> bus (bus public transport line)
 		modeMap.put("Bike", "bike"); // Bike -> bike mode
-		modeMap.put("Covoit", "ride"); // Covoit variants map to ride/carpool
-		modeMap.put("Covoit_echange", "ride"); // carpool exchange
-		modeMap.put("Covoit_front", "ride"); // carpool frontier
-		modeMap.put("Covoit_non_tribut", "ride"); // carpool non-tributary
-		modeMap.put("Covoit_transit", "ride"); // carpool transit
-		modeMap.put("Covoit_tribut", "ride"); // carpool tributary
-		modeMap.put("M", "walk"); // M -> walking
-		modeMap.put("PL", "truck"); // PL variants map to truck
-		modeMap.put("PL_nonTribut", "truck"); // truck non-tributary
-		modeMap.put("PL_tribut", "truck"); // truck tributary
-		modeMap.put("R", "pt"); // R -> public transport
-		modeMap.put("TC_inactif", "pt"); // inactive PT
-		modeMap.put("TRAM", "pt"); // tram is PT
-		modeMap.put("V", "car"); // V variants map to car
-		modeMap.put("VS_ech", "car"); // car exchange
-		modeMap.put("VS_front", "car"); // car frontier
-		modeMap.put("VS_non_tribut", "car"); // car non-tributary
-		modeMap.put("VS_transit", "car"); // car transit
-		modeMap.put("VS_Tribut", "car"); // car tributary
-		modeMap.put("V_echange", "car"); // car exchange
-		modeMap.put("V_front_BE_FR", "car"); // car Belgium-France frontier
-		modeMap.put("V_front_BE_LU", "car"); // car Belgium-Luxembourg frontier
-		modeMap.put("V_front_fr_1", "car"); // car France frontier 1
-		modeMap.put("V_front_fr_2", "car"); // car France frontier 2
-		modeMap.put("V_front_fr_3", "car"); // car France frontier 3
-		modeMap.put("V_interne_LU", "car"); // car internal Luxembourg
-		modeMap.put("V_non_frontalier", "car"); // car non-frontier
-		modeMap.put("V_transit", "car"); // car transit
+		modeMap.put("Covoit", "ride"); // Covoit -> ride (carpool)
+		modeMap.put("Covoit_tribut", "ride"); // carpool tributary -> ride
+		modeMap.put("Covoit_echange", "ride"); // carpool exchange -> ride
+		modeMap.put("Covoit_front", "ride"); // carpool frontier -> ride
+		modeMap.put("Covoit_non_tribut", "ride"); // carpool non-tributary -> ride
+		modeMap.put("Covoit_transit", "ride"); // carpool transit -> ride
+		modeMap.put("PL", "truck"); // PL -> truck (poids lourds = heavy goods vehicle)
+		modeMap.put("PL_tribut", "truck"); // heavy vehicle tributary -> truck
+		modeMap.put("PL_nonTribut", "truck"); // heavy vehicle non-tributary -> truck
+		modeMap.put("V", "car"); // V -> car (voiture = car)
+		modeMap.put("VS_Tribut", "car"); // car tributary sub-type -> car
+		modeMap.put("V_echange", "car"); // car exchange -> car
+		modeMap.put("V_front_BE_FR", "car"); // car Belgium-France frontier -> car
+		modeMap.put("V_front_BE_LU", "car"); // car Belgium-Luxembourg frontier -> car
+		modeMap.put("V_front_fr_1", "car"); // car France frontier 1 -> car
+		modeMap.put("V_front_fr_2", "car"); // car France frontier 2 -> car
+		modeMap.put("V_front_fr_3", "car"); // car France frontier 3 -> car
+		modeMap.put("V_interne_LU", "car"); // car internal Luxembourg -> car
+		modeMap.put("V_non_frontalier", "car"); // car non-frontier -> car
+		modeMap.put("V_transit", "car"); // car transit -> car
+		modeMap.put("R", "rail"); // R -> rail (rail infrastructure)
+		modeMap.put("M", "walk"); // M -> walk (pedestrian paths)
+		modeMap.put("M_foot", "walk"); // pedestrian foot variant -> walk
+		modeMap.put("M_pedestrian", "walk"); // pedestrian variant -> walk
+		modeMap.put("M_shared", "walk"); // shared pedestrian path -> walk
 		
 		Set<String> matsimModes = new HashSet<>(); // create set for mapped modes (auto removes duplicates)
 		String[] visumModeArray = visumModes.split(","); // split TSYSSET by comma
@@ -423,6 +427,8 @@ public class Visum2MATSimNetworkConverter {
 			String matsimMode = modeMap.get(trimmed); // lookup MATSim mode
 			if (matsimMode != null) { // check if mapping exists
 				matsimModes.add(matsimMode); // add MATSim mode to set (auto removes duplicates)
+			} else if (!trimmed.isEmpty()) { // unknown code — warn once
+				log.warn("Unknown VISUM TSYSSET code (no MATSim mapping): '" + trimmed + "'"); // log unknown code
 			}
 		}
 		
