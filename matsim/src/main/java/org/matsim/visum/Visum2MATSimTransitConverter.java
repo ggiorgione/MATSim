@@ -54,7 +54,7 @@ import org.matsim.vehicles.Vehicles; // import Vehicles container
  * Requires a network.xml (produced by Visum2MATSimNetworkConverter) to look up stop coordinates.
  * Run Visum2MATSimNetworkConverter first, then run this converter.
  *
- * @author GitHub Copilot
+ * @author giulio
  */
 public class Visum2MATSimTransitConverter {
 

@@ -49,7 +49,7 @@ import java.util.HashMap; // import HashMap for mode mapping static initializer
  * Converts VISUM CSV files to MATSim network.xml.
  * Transit data (schedule, vehicles) is handled separately by Visum2MATSimTransitConverter.
  *
- * @author GitHub Copilot
+ * @author giulio
  */
 public class Visum2MATSimNetworkConverter {
 
@@ -419,6 +419,7 @@ public class Visum2MATSimNetworkConverter {
 		modeMap.put("M_foot", "walk"); // pedestrian foot variant -> walk
 		modeMap.put("M_pedestrian", "walk"); // pedestrian variant -> walk
 		modeMap.put("M_shared", "walk"); // shared pedestrian path -> walk
+		modeMap.put("Map", "walk"); // shared pedestrian path -> walk
 		
 		Set<String> matsimModes = new HashSet<>(); // create set for mapped modes (auto removes duplicates)
 		String[] visumModeArray = visumModes.split(","); // split TSYSSET by comma

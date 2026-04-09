@@ -12,7 +12,7 @@ import java.io.File; // import File for path operations
 public class RunVisumConversion {
 
 	private static final String INPUT_CRS = "EPSG:3857"; // CRS of VISUM input coordinates — change to "EPSG:4326" for WGS84
-	private static final boolean CAR_ONLY = true; // produce car-only cleaned network — set false for multimodal
+	private static final boolean CAR_ONLY = false; // produce car-only cleaned network — set false for multimodal
 
 	public static void main(String[] args) {
 		String workingDir = System.getProperty("user.dir"); // get current working directory
