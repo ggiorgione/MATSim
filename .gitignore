@@ -19,8 +19,10 @@ matsim/src/main/java/Doxyfile
 output/
 
 # ignore scenarios folder but keept the tree structure
-scenarios/MMUST/
+scenarios/*/*
 
+# ignore every pdf file
+*.pdf
 
 #ignore scenarios\MMUST network and plans folder
 scenarios/MMUST/network*
@@ -31,6 +33,9 @@ scenarios/MMUST/output/
 apache-maven-3.9.6-bin.zip
 output.log
 .github/copilot-instructions.md
+
+# ignore osmium folder
+osmium-tool/
 
 # Ignore all jar files
 *.jar
