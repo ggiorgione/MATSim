@@ -1,124 +1,65 @@
 # MMUST — Luxembourg MATSim Scenario
 
-Multimodal MATSim scenario for Luxembourg built from VISUM network exports and GTFS transit data.
+Multimodal MATSim scenario for Luxembourg built from OSM data and GTFS transit data.
 
 ---
 
-## Scenario files
-
-### Files needed to run the simulation
+## Simulation files
 
 | File | Description |
 |------|-------------|
-| `full_config.xml` | MATSim configuration (the only file to pass to the Controler) |
-| `network_with_pt.xml` | Multimodal network including PT links (output of PTMapper) |
-| `transitSchedule.xml` | Mapped PT schedule with `linkRefId` on all stops (output of PTMapper) |
-| `transitVehicles.xml` | PT vehicle fleet definitions (output of GTFS converter) |
-| `plans.xml` | Synthetic population (~1 % sample) — modes: `car`, `pt`, `bike`, `walk` |
-| `plans_170k.xml` | Full population (~170 k agents) |
+| `input/full_config.xml` | MATSim configuration (pass to Controler) |
+| `input/network_with_pt.xml` | Multimodal network including PT links (PTMapper output) |
+| `input/transitSchedule.xml` | Mapped PT schedule (PTMapper output) |
+| `input/transitVehicles.xml` | PT vehicle fleet (GTFS converter output) |
+| `input/plans.xml` | Synthetic population (~1 % sample) |
+| `input/plans_170k.xml` | Full population (~170 k agents) |
 
-### Network-building inputs
+## Network-building inputs
 
-All VISUM CSV exports are under `VISUM/Input4MATSim/`:
+| Source | Location |
+|--------|----------|
+| OSM `.pbf` files (Lorraine, Luxembourg, Rheinland-Pfalz, Saarland) | `tools/OSM/` |
+| GTFS transit data | `tools/VISUM/GTFS/042026/` |
 
-| File | Used for |
-|------|----------|
-| `Nodes.csv` | Road node coordinates, IDs, types |
-| `Links.csv` | Road links with TSYSSET mode codes, capacity, free-speed, geometry |
-| `VISUM/GTFS/042026/` | GTFS transit data (stops, routes, trips, stop_times, …) |
+## How to regenerate
 
-TSYSSET → MATSim mode mapping:
+All steps use the self-contained package in `tools/OSM/osm_converter_package/` which bundles JDK 25 and the pt2matsim shaded jar.
 
-| TSYSSET code | MATSim mode |
-|---|---|
-| `B` | `bus` |
-| `Bike` | `bike` |
-| `R` | `rail` |
-| `M`, `M_*` | `walk` (walk links — teleported in simulation) |
-| `Covoit`, `Covoit_*` | `ride` |
-| `PL`, `PL_*` | `truck` |
-| `V`, `V_*`, `VS_*` | `car` |
-
-### Intermediate / pre-processing files
-
-| File | Description |
-|------|-------------|
-| `pt2matsim-tools/network.xml` | Base multimodal network (no PT links) — input for PTMapper |
-| `pt2matsim-tools/transitSchedule_unmapped.xml` | Raw GTFS schedule (no link references) — input for PTMapper |
-| `pt2matsim-tools/ptmapping_config.xml` | Configuration for pt2matsim `PublicTransitMapper` (pre-processing only, not used by the simulation) |
-
----
-
-## How to regenerate the scenario inputs
-
-All commands are run from the **workspace root** (`c:\Users\giulio\Documents\VSCode\MATSim`).
-
-### Step 1 — Build the base network from VISUM CSVs
+### Step 1 — Merge OSM files (osmium-tool)
 
 ```bat
-mvn -pl matsim exec:java ^
-  -Dexec.mainClass=org.matsim.visum.Visum2MATSimNetworkConverter ^
-  -Dexec.args="scenarios/MMUST/VISUM/Input4MATSim scenarios/MMUST/pt2matsim-tools EPSG:3857"
+osmium merge tools/OSM/lorraine-260412.osm.pbf tools/OSM/luxembourg-260412.osm.pbf ^
+             tools/OSM/rheinland-pfalz-260412.osm.pbf tools/OSM/saarland-260412.osm.pbf ^
+             -o tools/OSM/merged.osm.pbf
 ```
 
-Output: `scenarios/MMUST/pt2matsim-tools/network.xml` (200 933 nodes, 469 602 links, modes: `bike`, `bus`, `car`, `rail`, `ride`, `truck`)
+### Step 2 — OSM → network.xml
 
-### Step 2 — Convert GTFS to an unmapped transit schedule
+Double-click `tools/OSM/osm_converter_package/run_osm_converter_unc.bat`.
+Config: `tools/OSM/osm_converter_config.xml`. Output: `osm_converter_package/output/network_osm.xml` (824 MB).
 
-```bat
-mvn -pl pt2matsim exec:java ^
-  -Dexec.mainClass=org.matsim.pt2matsim.run.Gtfs2TransitSchedule ^
-  -Dexec.args="scenarios/MMUST/VISUM/GTFS/042026 20260424 EPSG:3857 scenarios/MMUST/pt2matsim-tools/transitSchedule_unmapped.xml scenarios/MMUST/transitVehicles.xml"
-```
+### Step 3 — GTFS → unmapped schedule
 
-Output: `pt2matsim-tools/transitSchedule_unmapped.xml`, `transitVehicles.xml`
+Double-click `tools/OSM/osm_converter_package/run_gtfs_to_schedule.bat`.
+Output: `osm_converter_package/output/transitSchedule_unmapped.xml` (682 lines, 2 267 routes), `transitVehicles.xml`.
 
-### Step 3 — Map the schedule to the network (PTMapper)
+### Step 4 — Map schedule to network (PTMapper)
 
-```bat
-mvn -pl pt2matsim exec:java ^
-  -Dexec.mainClass=org.matsim.pt2matsim.run.PublicTransitMapper ^
-  -Dexec.args=scenarios/MMUST/pt2matsim-tools/ptmapping_config.xml
-```
+Update `tools/pt2matsim-tools/ptmapping_config.xml` `inputNetworkFile` to point to `network_osm.xml`, then run `PublicTransitMapper`.
+Output: `input/transitSchedule_mapped.xml`, `input/network_with_pt.xml`.
 
-Output: `scenarios/MMUST/transitSchedule.xml`, `scenarios/MMUST/network_with_pt.xml`
-
-> **Note**: `ptmapping_config.xml` is a `pt2matsim` configuration file, not a MATSim simulation config. The internal file paths (`inputNetworkFile`, `inputScheduleFile`, etc.) are relative to the workspace root.
+> See `tools/pt2matsim-tools/README_transit_input_procedure.md` for detailed instructions.
 
 ---
 
 ## Running the simulation
 
-### From the command line (Maven)
-
 ```bat
 mvn -pl matsim exec:java ^
   -Dexec.mainClass=org.matsim.core.controler.Controler ^
-  -Dexec.args=scenarios/MMUST/full_config.xml
+  -Dexec.args=scenarios/MMUST/input/full_config.xml
 ```
 
-### From the bundled launcher (Windows)
-
-Double-click `run.bat` in `scenarios/MMUST/`. Requires `matsim-simulation.jar` and optionally `jre21/` in the same folder.
-
-### From an IDE
-
-Run `org.matsim.core.controler.Controler` and pass `scenarios/MMUST/full_config.xml` as the program argument.
-
----
-
-## Mode configuration
-
-| Mode | Network routing | Notes |
-|------|----------------|-------|
-| `car` | Network-routed (`networkModes = car`) | Car links in `network_with_pt.xml` |
-| `pt` | Transit schedule (`SwissRailRaptor`) | Requires `transitSchedule.xml` + `transitVehicles.xml` |
-| `bike` | Teleported (beeline × 1.3, 15 km/h) | Bike links exist in network but routing uses teleportation |
-| `walk` | Teleported (beeline × 1.3, 3 km/h) | Walk is **not** a network mode — no walk links in `network_with_pt.xml`; this is standard MATSim behaviour |
-
----
-
-## Output
-
-Simulation results are written to `scenarios/MMUST/output/` (configured in `full_config.xml`).
+Or double-click `run.bat` in `scenarios/MMUST/`. Simulation output: `scenarios/MMUST/output/`.
 

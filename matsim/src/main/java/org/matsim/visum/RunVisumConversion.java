@@ -16,8 +16,8 @@ public class RunVisumConversion {
 
 	public static void main(String[] args) {
 		String workingDir = System.getProperty("user.dir"); // get current working directory
-		String inputDir = new File(workingDir, "scenarios/MMUST/VISUM/Input4MATSim").getAbsolutePath(); // construct absolute input path
-		String outputDir = new File(workingDir, "scenarios/MMUST/VISUM/Output4MATSim").getAbsolutePath(); // construct absolute output path
+		String inputDir = new File(workingDir, "scenarios/MMUST/tools/VISUM/Input4MATSim").getAbsolutePath(); // construct absolute input path
+		String outputDir = new File(workingDir, "scenarios/MMUST/tools/VISUM/Output4MATSim").getAbsolutePath(); // construct absolute output path
 
 		System.out.println("Working directory: " + workingDir); // print working directory for debugging
 		System.out.println("Input directory: " + inputDir); // print input path
