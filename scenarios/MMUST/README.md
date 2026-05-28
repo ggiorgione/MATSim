@@ -10,7 +10,7 @@ Multimodal MATSim scenario for Luxembourg built from OSM data and GTFS transit d
 |------|-------------|
 | `input/full_config.xml` | MATSim configuration (pass to Controler) |
 | `input/network_with_pt.xml` | Multimodal network including PT links (PTMapper output) |
-| `input/transitSchedule.xml` | Mapped PT schedule (PTMapper output) |
+| `input/transitSchedule_mapped.xml` | Mapped PT schedule (PTMapper output) |
 | `input/transitVehicles.xml` | PT vehicle fleet (GTFS converter output) |
 | `input/plans.xml` | Synthetic population (~1 % sample) |
 | `input/plans_170k.xml` | Full population (~170 k agents) |
@@ -39,17 +39,19 @@ osmium merge tools/OSM/lorraine-260412.osm.pbf tools/OSM/luxembourg-260412.osm.p
 Double-click `tools/OSM/osm_converter_package/run_osm_converter_unc.bat`.
 Config: `tools/OSM/osm_converter_config.xml`. Output: `osm_converter_package/output/network_osm.xml` (824 MB).
 
-### Step 3 — GTFS → unmapped schedule
+### Steps 3–5 — PT schedule (automated)
 
-Double-click `tools/OSM/osm_converter_package/run_gtfs_to_schedule.bat`.
-Output: `osm_converter_package/output/transitSchedule_unmapped.xml` (682 lines, 2 267 routes), `transitVehicles.xml`.
+Double-click `tools/pt2matsim-tools/run_full_pt_pipeline.bat`. This runs all five PT steps in sequence:
 
-### Step 4 — Map schedule to network (PTMapper)
+1. GTFS → unmapped schedule for each of the four countries (BE, FR, GE, LU)
+2. Merge the four schedules into `transitSchedule_unmapped_merged.xml`
+3. Map merged schedule onto the OSM network → `transitSchedule_mapped.xml` + `network_with_pt.xml`
+4. Deploy outputs to `scenarios/MMUST/input/`
+5. Remove loop-link routes (fixes `UmlaufInterpolator` crash at MATSim startup)
 
-Update `tools/pt2matsim-tools/ptmapping_config.xml` `inputNetworkFile` to point to `network_osm.xml`, then run `PublicTransitMapper`.
-Output: `input/transitSchedule_mapped.xml`, `input/network_with_pt.xml`.
+**Prerequisites**: `tools/pt2matsim-tools/input/GTFS/{BE,FR,GE,LU}/` populated with GTFS feeds; `ptmapping_config.xml` `inputNetworkFile` pointing to `network_osm.xml`.
 
-> See `tools/pt2matsim-tools/README_transit_input_procedure.md` for detailed instructions.
+> See `tools/pt2matsim-tools/README_transit_input_procedure.md` for detailed per-step instructions and the full pipeline diagram.
 
 ---
 

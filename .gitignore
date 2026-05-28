@@ -45,3 +45,7 @@ scenarios/MMUST/transitSchedule.xml
 scenarios/MMUST/transitVehicles.xml
 scenarios/MMUST/pt2matsim-tools/ptmapping_config.xml
 scenarios/MMUST/pt2matsim-tools/transitSchedule_unmapped.xml
+AnalyzeMatsim.cs
+config_100pct_cadyts_hermes.xml
+network_analysis.py
+pt2matsim_build.log
