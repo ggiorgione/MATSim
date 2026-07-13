@@ -49,3 +49,10 @@ AnalyzeMatsim.cs
 config_100pct_cadyts_hermes.xml
 network_analysis.py
 pt2matsim_build.log
+test/analyze_modal_share.py
+test/compare_targets.py
+test/run_analysis.ps1
+test/target_modal_share.csv
+
+# Ignore every output* folder in C:\Users\giulio\Documents\VSCode\AB7MOL\MATSim\scenarios\MMUST
+scenarios/MMUST/output*/

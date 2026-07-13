@@ -34,11 +34,13 @@ import org.matsim.api.core.v01.network.Node; // import Node to create network no
 import org.matsim.core.config.ConfigUtils; // import ConfigUtils to create config
 import org.matsim.core.network.NetworkUtils; // import NetworkUtils for public API node/link creation
 import org.matsim.core.network.algorithms.NetworkCleaner; // import NetworkCleaner to remove disconnected components
+import org.matsim.core.network.algorithms.MultimodalNetworkCleaner; // import mode-aware cleaner that only prunes car connectivity
 import org.matsim.core.network.algorithms.TransportModeNetworkFilter; // import filter for car-only subnetwork
 import org.matsim.api.core.v01.network.NetworkWriter; // import NetworkWriter API to save network to XML
 import org.matsim.core.utils.io.IOUtils; // import IOUtils for file operations
 import java.io.File; // import File for path handling
 import java.util.ArrayList; // import ArrayList for CSV parsing
+import java.util.Collections; // import Collections for singleton mode set
 import java.util.List; // import List interface
 import java.util.Set; // import Set interface for storing modes
 import java.util.HashSet; // import HashSet for creating sets
@@ -126,10 +128,18 @@ public class Visum2MATSimNetworkConverter {
 			filter.filter(carNetwork, modes); // extract car-only subnetwork into carNetwork
 			network = carNetwork; // replace multimodal network with car-only result
 			log.info("Car-only filter applied: " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links"); // log filtered size
-		}
 
-		new NetworkCleaner().run(network); // remove disconnected components so every remaining node is reachable
-		log.info("Network cleaned: " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links remaining"); // log cleaned size
+			new NetworkCleaner().run(network); // network only has car links left, so plain (mode-agnostic) cleaning is safe here
+			log.info("Network cleaned: " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links remaining"); // log cleaned size
+		} else {
+			// Multimodal output: a mode-agnostic NetworkCleaner would require the WHOLE graph (car+bus+bike+truck+ride+rail)
+			// to be one strongly connected cluster, which silently deletes rail-only islands that aren't well-connected to the
+			// road graph (e.g. this dataset's ~1,290 "R" rail links, only 6 of whose ~594 nodes touch the road network).
+			// MultimodalNetworkCleaner instead only enforces connectivity for the given cleaningModes (car), leaving links
+			// that never had "car" as an allowed mode completely untouched.
+			new MultimodalNetworkCleaner(network).run(Collections.singleton(TransportMode.car)); // clean car connectivity only; bus/rail/bike/truck/ride links are preserved as-is
+			log.info("Network cleaned (car connectivity only): " + network.getNodes().size() + " nodes, " + network.getLinks().size() + " links remaining"); // log cleaned size
+		}
 
 		writeNetwork(network); // save final network to network.xml
 		log.info("Conversion completed successfully"); // log completion
