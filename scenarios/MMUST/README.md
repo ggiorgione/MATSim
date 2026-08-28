@@ -65,3 +65,41 @@ mvn -pl matsim exec:java ^
 
 Or double-click `run.bat` in `scenarios/MMUST/`. Simulation output: `scenarios/MMUST/output/`.
 
+## Cadyts car-count calibration
+
+`input/counts_car_2017.xml` (174 PCH stations, directionally matched to network links) enables count-based
+calibration on top of the S2 mode-share ASC tuning. Cadyts needs Java wiring (a custom `ScoringFunctionFactory`)
+that a config file alone can't express, so it does **not** run through the stock `Controler` - use the dedicated
+`mmust-run` module and its config fork, `input/full_config_hermes_cadyts.xml` (S2-R20 baseline + `cadytsCar`
+module + `counts.inputCountsFile`; `input/full_config_hermes.xml` itself is untouched, so the S2 R-sequence
+stays intact).
+
+Run locally from source:
+
+```bat
+mvn -pl mmust-run -am exec:java ^
+  -Dexec.mainClass=org.matsim.run.mmust.RunMMUSTCadyts ^
+  -Dexec.args=scenarios/MMUST/input/full_config_hermes_cadyts.xml
+```
+
+Build a self-contained jar (e.g. to copy to a server for a run on a larger population):
+
+```bat
+mvn -pl mmust-run -am package -DskipTests
+```
+
+produces `mmust-run/target/mmust-run.jar` (`Main-Class: org.matsim.run.mmust.RunMMUSTCadyts`). Run it directly:
+
+```bat
+java -Xmx<size>g -jar mmust-run.jar path\to\config.xml
+```
+
+**Before scaling up the population**, `counts.countsScaleFactor` (currently `100`, in both `full_config_hermes.xml`
+and the cadyts fork) must be recomputed for the new sample rate - it scales simulated counts up to match the real
+counts that both cadyts and the `counts` module compare against, and is currently set for the 1% sample
+(`pop_to_reach=12620`).
+
+Output: link cost offsets and flow-analysis diagnostics are written per iteration
+(`linkCostOffsets.xml`, `flowAnalysis.txt`, at `counts.writeCountsInterval`); plain counts-vs-simulation comparison
+files come from the standard `counts` module output.
+

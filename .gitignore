@@ -56,3 +56,6 @@ test/target_modal_share.csv
 
 # Ignore every output* folder in C:\Users\giulio\Documents\VSCode\AB7MOL\MATSim\scenarios\MMUST
 scenarios/MMUST/output*/
+hermes2_run_stdout.log
+test/run_comparator.txt
+test/vscode.txt

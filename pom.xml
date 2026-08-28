@@ -13,6 +13,7 @@
         <module>benchmark</module>
         <module>contribs</module>
         <module>pt2matsim</module>
+        <module>mmust-run</module>
     </modules>
 
     <licenses>

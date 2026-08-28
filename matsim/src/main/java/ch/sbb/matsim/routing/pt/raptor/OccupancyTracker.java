@@ -107,6 +107,11 @@ public class OccupancyTracker implements PersonDepartureEventHandler, AgentWaiti
 	@Override
 	public void handleEvent(TransitDriverStartsEvent event) {
 		this.transitDrivers.add(event.getDriverId());
+		if (this.scenario.getTransitSchedule().getTransitLines().get(event.getTransitLineId()) == null) {
+			// Empty repositioning trip between service trips (AbstractTransitDriverAgent's "Wenden" placeholder,
+			// used when a vehicle drives without an assigned TransitLine) - not a real schedule line, nothing to track.
+			return;
+		}
 		// store information about the current service of the transit vehicle
 		Vehicle vehicle = this.scenario.getTransitVehicles().getVehicles().get(event.getVehicleId());
 		this.data.vehicleData.put(event.getVehicleId(), new VehicleData(vehicle, event.getTransitLineId(), event.getTransitRouteId(), event.getDepartureId()));

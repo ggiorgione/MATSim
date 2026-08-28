@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		 xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+
+	<parent>
+		<groupId>org.matsim</groupId>
+		<artifactId>matsim-all</artifactId>
+		<version>2026.0-SNAPSHOT</version>
+	</parent>
+	<modelVersion>4.0.0</modelVersion>
+
+	<artifactId>mmust-run</artifactId>
+	<name>MMUST scenario runner</name>
+	<description>
+		Custom entry point(s) for the MMUST (Luxembourg) scenario that need Java wiring beyond what a config.xml
+		can express - currently: cadyts count-based calibration (org.matsim.contrib:cadyts-integration), which
+		requires overriding the Controler's scoring function factory in code.
+	</description>
+
+	<dependencies>
+		<!-- current MATSim core, built in this same reactor (2026.0-SNAPSHOT) -->
+		<dependency>
+			<groupId>org.matsim</groupId>
+			<artifactId>matsim</artifactId>
+			<version>${project.parent.version}</version>
+		</dependency>
+		<!--
+			cadytsIntegration's own parent (contribs/pom.xml) is still pinned to 2025.0-SNAPSHOT, so this is the
+			only version of the contrib currently built/installed. It transitively pulls in org.matsim:matsim at
+			2025.0-SNAPSHOT too, but the direct dependency above (2026.0-SNAPSHOT, one level closer) wins under
+			Maven's nearest-wins mediation, and 2026.0-SNAPSHOT also satisfies requireUpperBoundDeps as the higher
+			version. If contribs/pom.xml's parent version is ever bumped to match, drop this explicit version and
+			use ${project.parent.version} instead.
+		-->
+		<dependency>
+			<groupId>org.matsim.contrib</groupId>
+			<artifactId>cadyts-integration</artifactId>
+			<version>2025.0-SNAPSHOT</version>
+		</dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-shade-plugin</artifactId>
+				<version>3.5.2</version>
+				<executions>
+					<execution>
+						<id>shade-mmust-run</id>
+						<phase>package</phase>
+						<goals>
+							<goal>shade</goal>
+						</goals>
+						<configuration>
+							<outputFile>${project.build.directory}/mmust-run.jar</outputFile>
+							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<filters>
+								<filter>
+									<artifact>*:*</artifact>
+									<excludes>
+										<exclude>META-INF/*.SF</exclude>
+										<exclude>META-INF/*.DSA</exclude>
+										<exclude>META-INF/*.RSA</exclude>
+										<!-- same exclusion as matsim/pom.xml's shade config: merging the imageio SPI
+										     service files makes the JAI providers fail to instantiate at runtime
+										     ("vendorName == null!"), which kills the run when charts are written -->
+										<exclude>META-INF/services/javax.imageio.*</exclude>
+									</excludes>
+								</filter>
+							</filters>
+							<transformers>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+									<mainClass>org.matsim.run.mmust.RunMMUSTCadyts</mainClass>
+								</transformer>
+								<transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+							</transformers>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
